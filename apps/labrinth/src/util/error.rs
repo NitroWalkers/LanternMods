@@ -3,7 +3,7 @@ use std::{
     fmt::{Debug, Display},
 };
 
-use crate::routes::ApiError;
+use crate::routes::error::ApiError;
 
 pub trait Context<T, E>: Sized {
     fn wrap_request_err_with<D>(

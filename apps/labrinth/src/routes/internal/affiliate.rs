@@ -12,13 +12,14 @@ use crate::{
     },
     queue::session::AuthQueue,
 };
+use actix_web::web::Json;
 use actix_web::{HttpRequest, HttpResponse, web};
 use ariadne::ids::UserId;
 use chrono::Utc;
 use serde::Deserialize;
 use sqlx::PgPool;
 
-use crate::routes::ApiError;
+use crate::routes::error::{ApiError, SpecificAuthenticationError};
 
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(
@@ -63,8 +64,8 @@ async fn get_all(
             .collect::<Vec<_>>();
         Ok(HttpResponse::Ok().json(codes))
     } else {
-        Err(ApiError::CustomAuthentication(
-            "You do not have permission to view affiliate codes!".to_string(),
+        Err(ApiError::SpecificAuthentication(
+            SpecificAuthenticationError::ViewAffiliateCodes,
         ))
     }
 }
@@ -80,7 +81,7 @@ async fn create(
     pool: web::Data<PgPool>,
     redis: web::Data<RedisPool>,
     session_queue: web::Data<AuthQueue>,
-    body: web::Json<CreateRequest>,
+    body: Json<CreateRequest>,
 ) -> Result<HttpResponse, ApiError> {
     let (_, creator) = get_user_from_headers(
         &req,
@@ -95,9 +96,8 @@ async fn create(
     let is_affiliate = creator.badges.contains(Badges::AFFILIATE);
 
     if !is_admin && !is_affiliate {
-        return Err(ApiError::CustomAuthentication(
-            "You do not have permission to create an affiliate code!"
-                .to_string(),
+        return Err(ApiError::SpecificAuthentication(
+            SpecificAuthenticationError::CreateAffiliateCode,
         ));
     }
 
@@ -116,8 +116,8 @@ async fn create(
         let Some(_affiliate_user) =
             DBUser::get_id(affiliate_id, &**pool, &redis).await?
         else {
-            return Err(ApiError::CustomAuthentication(
-                "Affiliate user not found!".to_string(),
+            return Err(ApiError::SpecificAuthentication(
+                SpecificAuthenticationError::UnknownAffiliateUser,
             ));
         };
     }
@@ -237,7 +237,7 @@ async fn patch(
     pool: web::Data<PgPool>,
     redis: web::Data<RedisPool>,
     session_queue: web::Data<AuthQueue>,
-    body: web::Json<PatchRequest>,
+    body: Json<PatchRequest>,
 ) -> Result<HttpResponse, ApiError> {
     let (_, user) = get_user_from_headers(
         &req,
@@ -263,8 +263,8 @@ async fn patch(
     }
 
     if !is_admin && !user.badges.contains(Badges::AFFILIATE) {
-        return Err(ApiError::CustomAuthentication(
-            "You do not have permission to update affiliate codes!".to_string(),
+        return Err(ApiError::SpecificAuthentication(
+            SpecificAuthenticationError::UpdateAffiliateCodes,
         ));
     }
 

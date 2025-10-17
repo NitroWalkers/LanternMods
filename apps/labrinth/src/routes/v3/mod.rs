@@ -1,4 +1,4 @@
-pub use super::ApiError;
+pub use crate::routes::error::ApiError;
 use crate::util::cors::default_cors;
 use actix_web::{HttpResponse, web};
 use serde_json::json;
@@ -6,6 +6,7 @@ use serde_json::json;
 pub mod analytics_get;
 pub mod analytics_get_old;
 pub mod collections;
+pub mod create_error;
 pub mod friends;
 pub mod images;
 pub mod limits;

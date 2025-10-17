@@ -3,9 +3,8 @@ use crate::auth::get_user_from_headers;
 use crate::database::models::charge_item::DBCharge;
 use crate::database::models::notification_item::NotificationBuilder;
 use crate::database::models::products_tax_identifier_item::product_info_by_product_price_id;
-use crate::database::models::{
-    charge_item, generate_charge_id, product_item, user_subscription_item,
-};
+use crate::database::models::user_subscription_item::DBUserSubscription;
+use crate::database::models::{DBUser, generate_charge_id, product_item};
 use crate::database::redis::RedisPool;
 use crate::models::billing::{
     Charge, ChargeStatus, ChargeType, PaymentPlatform, Price, PriceDuration,
@@ -16,7 +15,9 @@ use crate::models::notifications::NotificationBody;
 use crate::models::pats::Scopes;
 use crate::models::users::Badges;
 use crate::queue::session::AuthQueue;
-use crate::routes::ApiError;
+use crate::routes::error::{
+    ApiError, ApiInvalidInput, SpecificAuthenticationError,
+};
 use crate::util::anrok;
 use actix_web::{HttpRequest, HttpResponse, delete, get, patch, post, web};
 use ariadne::ids::base62_impl::{parse_base62, to_base62};
@@ -110,26 +111,24 @@ pub async fn subscriptions(
     .await?
     .1;
 
-    let subscriptions =
-        user_subscription_item::DBUserSubscription::get_all_user(
-            if let Some(user_id) = query.user_id {
-                if user.role.is_admin() {
-                    user_id.into()
-                } else {
-                    return Err(ApiError::InvalidInput(
-                        "You cannot see the subscriptions of other users!"
-                            .to_string(),
-                    ));
-                }
+    let subscriptions = DBUserSubscription::get_all_user(
+        if let Some(user_id) = query.user_id {
+            if user.role.is_admin() {
+                user_id.into()
             } else {
-                user.id.into()
-            },
-            &**pool,
-        )
-        .await?
-        .into_iter()
-        .map(UserSubscription::from)
-        .collect::<Vec<_>>();
+                return Err(ApiError::InvalidInput(
+                    ApiInvalidInput::OtherUsersSubscription,
+                ));
+            }
+        } else {
+            user.id.into()
+        },
+        &**pool,
+    )
+    .await?
+    .into_iter()
+    .map(UserSubscription::from)
+    .collect::<Vec<_>>();
 
     Ok(HttpResponse::Ok().json(subscriptions))
 }
@@ -174,8 +173,8 @@ pub async fn refund_charge(
     let (id,) = info.into_inner();
 
     if !user.role.is_admin() {
-        return Err(ApiError::CustomAuthentication(
-            "You do not have permission to refund a subscription!".to_string(),
+        return Err(ApiError::SpecificAuthentication(
+            SpecificAuthenticationError::Refund,
         ));
     }
 
@@ -203,14 +202,13 @@ pub async fn refund_charge(
 
         if charge.status != ChargeStatus::Succeeded {
             return Err(ApiError::InvalidInput(
-                "This charge cannot be refunded!".to_string(),
+                ApiInvalidInput::NonrefundableCharge,
             ));
         }
 
         if (refundable - refund_amount) < 0 {
             return Err(ApiError::InvalidInput(
-                "You cannot refund more than the amount of the charge!"
-                    .to_string(),
+                ApiInvalidInput::RefundTooLarge,
             ));
         }
 
@@ -327,15 +325,13 @@ pub async fn refund_charge(
                         )
                     } else {
                         return Err(ApiError::InvalidInput(
-                            "Charge does not have attached payment id!"
-                                .to_string(),
+                            ApiInvalidInput::NoAttachedPaymentId,
                         ));
                     }
                 }
                 PaymentPlatform::None => {
                     return Err(ApiError::InvalidInput(
-                        "This charge was not processed via a payment platform."
-                            .to_owned(),
+                        ApiInvalidInput::NoPaymentPlatform,
                     ));
                 }
             }
@@ -458,9 +454,7 @@ pub async fn edit_subscription(
         )
         .await?
         .ok_or_else(|| {
-            ApiError::InvalidInput(
-                "Could not link new product price to product.".to_owned(),
-            )
+            ApiError::InvalidInput(ApiInvalidInput::CouldntLinkNewProductPrice)
         })?;
         let current_product = product_item::DBProduct::get(
             current_product_price.product_id,
@@ -469,7 +463,7 @@ pub async fn edit_subscription(
         .await?
         .ok_or_else(|| {
             ApiError::InvalidInput(
-                "Could not link current product price to product.".to_owned(),
+                ApiInvalidInput::CouldntLinkCurrentProductPrice,
             )
         })?;
 
@@ -511,8 +505,8 @@ pub async fn edit_subscription(
     ///
     /// Returns the proration requirement (see [`Proration`]) and the new product price's amount.
     fn proration_amount(
-        open_charge: &charge_item::DBCharge,
-        subscription: &user_subscription_item::DBUserSubscription,
+        open_charge: &DBCharge,
+        subscription: &DBUserSubscription,
         current_price: &product_item::DBProductPrice,
         new_product_price: &product_item::DBProductPrice,
     ) -> Result<(Proration, i32), ApiError> {
@@ -524,8 +518,7 @@ pub async fn edit_subscription(
             Price::Recurring { intervals } => {
                 *intervals.get(&duration).ok_or_else(|| {
                     ApiError::InvalidInput(
-                        "Could not find a valid price for the user's duration"
-                            .to_owned(),
+                        ApiInvalidInput::NoValidPriceForUserDuration,
                     )
                 })?
             }
@@ -536,8 +529,7 @@ pub async fn edit_subscription(
             Price::Recurring { intervals } => {
                 *intervals.get(&duration).ok_or_else(|| {
                     ApiError::InvalidInput(
-                        "Could not find a valid price for the user's duration"
-                            .to_owned(),
+                        ApiInvalidInput::NoValidPriceForUserDuration,
                     )
                 })?
             }
@@ -549,9 +541,7 @@ pub async fn edit_subscription(
             .floor()
             .to_i32()
             .ok_or_else(|| {
-                ApiError::InvalidInput(
-                    "Could not convert proration to i32".to_owned(),
-                )
+                ApiError::InvalidInput(ApiInvalidInput::ProrationToI32)
             })?;
 
         Ok((
@@ -570,10 +560,9 @@ pub async fn edit_subscription(
 
     let dry = query.dry.unwrap_or_default();
 
-    let subscription =
-        user_subscription_item::DBUserSubscription::get(id.into(), &**pool)
-            .await?
-            .ok_or_else(|| ApiError::NotFound)?;
+    let subscription = DBUserSubscription::get(id.into(), &**pool)
+        .await?
+        .ok_or_else(|| ApiError::NotFound)?;
 
     if subscription.user_id != user.id.into() && !user.role.is_admin() {
         return Err(ApiError::NotFound);
@@ -581,16 +570,15 @@ pub async fn edit_subscription(
 
     let mut transaction = pool.begin().await?;
 
-    let mut open_charge = charge_item::DBCharge::get_open_subscription(
-        subscription.id,
-        &mut *transaction,
-    )
-    .await?
-    .ok_or_else(|| {
-        ApiError::InvalidInput(
-            "Could not find open charge for this subscription".to_string(),
-        )
-    })?;
+    let mut open_charge =
+        DBCharge::get_open_subscription(subscription.id, &mut *transaction)
+            .await?
+            .ok_or_else(|| {
+                ApiError::InvalidInput(
+                    "Could not find open charge for this subscription"
+                        .to_string(),
+                )
+            })?;
 
     let current_price = product_item::DBProductPrice::get(
         subscription.price_id,
@@ -946,23 +934,22 @@ pub async fn charges(
     .await?
     .1;
 
-    let charges =
-        crate::database::models::charge_item::DBCharge::get_from_user(
-            if let Some(user_id) = query.user_id {
-                if user.role.is_admin() {
-                    user_id.into()
-                } else {
-                    return Err(ApiError::InvalidInput(
-                        "You cannot see the subscriptions of other users!"
-                            .to_string(),
-                    ));
-                }
+    let charges = DBCharge::get_from_user(
+        if let Some(user_id) = query.user_id {
+            if user.role.is_admin() {
+                user_id.into()
             } else {
-                user.id.into()
-            },
-            &**pool,
-        )
-        .await?;
+                return Err(ApiError::InvalidInput(
+                    "You cannot see the subscriptions of other users!"
+                        .to_string(),
+                ));
+            }
+        } else {
+            user.id.into()
+        },
+        &**pool,
+    )
+    .await?;
 
     Ok(HttpResponse::Ok().json(
         charges
@@ -1147,11 +1134,7 @@ pub async fn remove_payment_method(
     .await?;
 
     let user_subscriptions =
-        user_subscription_item::DBUserSubscription::get_all_user(
-            user.id.into(),
-            &**pool,
-        )
-        .await?;
+        DBUserSubscription::get_all_user(user.id.into(), &**pool).await?;
 
     if user_subscriptions
         .iter()
@@ -1245,16 +1228,14 @@ pub async fn active_servers(
         .get("X-Master-Key")
         .is_none_or(|it| it.as_bytes() != master_key.as_bytes())
     {
-        return Err(ApiError::CustomAuthentication(
-            "Invalid master key".to_string(),
+        return Err(ApiError::SpecificAuthentication(
+            SpecificAuthenticationError::InvalidMasterKey,
         ));
     }
 
-    let servers = user_subscription_item::DBUserSubscription::get_all_servers(
-        query.subscription_status,
-        &**pool,
-    )
-    .await?;
+    let servers =
+        DBUserSubscription::get_all_servers(query.subscription_status, &**pool)
+            .await?;
 
     #[derive(Serialize)]
     struct ActiveServer {
@@ -1320,7 +1301,7 @@ pub struct PaymentRequest {
     #[serde(flatten)]
     pub type_: PaymentRequestType,
     pub charge: ChargeRequestType,
-    pub existing_payment_intent: Option<stripe::PaymentIntentId>,
+    pub existing_payment_intent: Option<PaymentIntentId>,
     pub metadata: Option<PaymentRequestMetadata>,
 }
 
@@ -1408,12 +1389,11 @@ pub async fn stripe_webhook(
         &dotenvy::var("STRIPE_WEBHOOK_SECRET")?,
     ) {
         struct PaymentIntentMetadata {
-            pub user_item: crate::database::models::user_item::DBUser,
+            pub user_item: DBUser,
             pub product_price_item: product_item::DBProductPrice,
             pub product_item: product_item::DBProduct,
-            pub charge_item: crate::database::models::charge_item::DBCharge,
-            pub user_subscription_item:
-                Option<user_subscription_item::DBUserSubscription>,
+            pub charge_item: DBCharge,
+            pub user_subscription_item: Option<DBUserSubscription>,
             pub payment_metadata: Option<PaymentRequestMetadata>,
             pub new_region: Option<String>,
             pub next_tax_amount: i64,
@@ -1439,11 +1419,7 @@ pub async fn stripe_webhook(
                     break 'metadata;
                 };
 
-                let Some(user) =
-                    crate::database::models::user_item::DBUser::get_id(
-                        user_id, pool, redis,
-                    )
-                    .await?
+                let Some(user) = DBUser::get_id(user_id, pool, redis).await?
                 else {
                     break 'metadata;
                 };
@@ -1481,10 +1457,7 @@ pub async fn stripe_webhook(
 
                 let (charge, price, product, subscription, new_region) =
                     if let Some(mut charge) =
-                        crate::database::models::charge_item::DBCharge::get(
-                            charge_id, pool,
-                        )
-                        .await?
+                        DBCharge::get(charge_id, pool).await?
                     {
                         let Some(price) = product_item::DBProductPrice::get(
                             charge.price_id,
@@ -1514,11 +1487,8 @@ pub async fn stripe_webhook(
 
                         if let Some(subscription_id) = charge.subscription_id {
                             let maybe_subscription =
-                            user_subscription_item::DBUserSubscription::get(
-                                subscription_id,
-                                pool,
-                            )
-                            .await?;
+                                DBUserSubscription::get(subscription_id, pool)
+                                    .await?;
 
                             let Some(mut subscription) = maybe_subscription
                             else {
@@ -1607,14 +1577,23 @@ pub async fn stripe_webhook(
                                     break 'metadata;
                                 };
 
-                                    let subscription = if let Some(mut subscription) = user_subscription_item::DBUserSubscription::get(subscription_id, pool).await? {
-                                    subscription.status = SubscriptionStatus::Unprovisioned;
-                                    subscription.price_id = price_id;
-                                    subscription.interval = interval;
+                                    let subscription = if let Some(
+                                        mut subscription,
+                                    ) =
+                                        DBUserSubscription::get(
+                                            subscription_id,
+                                            pool,
+                                        )
+                                        .await?
+                                    {
+                                        subscription.status =
+                                            SubscriptionStatus::Unprovisioned;
+                                        subscription.price_id = price_id;
+                                        subscription.interval = interval;
 
-                                    subscription
-                                } else {
-                                    user_subscription_item::DBUserSubscription {
+                                        subscription
+                                    } else {
+                                        DBUserSubscription {
                                         id: subscription_id,
                                         user_id,
                                         price_id,
@@ -1623,7 +1602,7 @@ pub async fn stripe_webhook(
                                         status: SubscriptionStatus::Unprovisioned,
                                         metadata: None,
                                     }
-                                };
+                                    };
 
                                     if charge_status != ChargeStatus::Failed {
                                         subscription
@@ -2041,7 +2020,7 @@ pub async fn stripe_webhook(
                     }
 
                     transaction.commit().await?;
-                    crate::database::models::user_item::DBUser::clear_caches(
+                    DBUser::clear_caches(
                         &[(metadata.user_item.id, None)],
                         &redis,
                     )

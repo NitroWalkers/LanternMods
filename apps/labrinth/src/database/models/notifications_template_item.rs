@@ -1,7 +1,7 @@
 use crate::database::models::DatabaseError;
 use crate::database::redis::RedisPool;
 use crate::models::v3::notifications::{NotificationChannel, NotificationType};
-use crate::routes::ApiError;
+use crate::routes::error::ApiError;
 use serde::{Deserialize, Serialize};
 
 const TEMPLATES_NAMESPACE: &str = "notifications_templates";

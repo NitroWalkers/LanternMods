@@ -7,7 +7,7 @@ use crate::models::users::Role;
 use crate::models::v3::notifications::NotificationBody;
 use crate::models::v3::pats::Scopes;
 use crate::queue::session::AuthQueue;
-use crate::routes::ApiError;
+use crate::routes::error::{ApiError, SpecificAuthenticationError};
 use crate::util::guards::external_notification_key_guard;
 use actix_web::HttpRequest;
 use actix_web::web;
@@ -83,8 +83,8 @@ pub async fn send_custom_email(
     .1;
 
     if user.role != Role::Admin {
-        return Err(ApiError::CustomAuthentication(
-            "You do not have permission to send custom emails!".to_string(),
+        return Err(ApiError::SpecificAuthentication(
+            SpecificAuthenticationError::SendCustomEmails,
         ));
     }
 
