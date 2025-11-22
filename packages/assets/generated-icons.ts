@@ -35,6 +35,7 @@ import _ChartIcon from './icons/chart.svg?component'
 import _CheckIcon from './icons/check.svg?component'
 import _CheckCheckIcon from './icons/check-check.svg?component'
 import _CheckCircleIcon from './icons/check-circle.svg?component'
+import _ChevronDownIcon from './icons/chevron-down.svg?component'
 import _ChevronLeftIcon from './icons/chevron-left.svg?component'
 import _ChevronRightIcon from './icons/chevron-right.svg?component'
 import _CircleUserIcon from './icons/circle-user.svg?component'
@@ -69,6 +70,8 @@ import _EyeIcon from './icons/eye.svg?component'
 import _EyeOffIcon from './icons/eye-off.svg?component'
 import _FileIcon from './icons/file.svg?component'
 import _FileArchiveIcon from './icons/file-archive.svg?component'
+import _FileCodeIcon from './icons/file-code.svg?component'
+import _FileImageIcon from './icons/file-image.svg?component'
 import _FileTextIcon from './icons/file-text.svg?component'
 import _FilterIcon from './icons/filter.svg?component'
 import _FilterXIcon from './icons/filter-x.svg?component'
@@ -168,6 +171,8 @@ import _ServerPlusIcon from './icons/server-plus.svg?component'
 import _SettingsIcon from './icons/settings.svg?component'
 import _ShareIcon from './icons/share.svg?component'
 import _ShieldIcon from './icons/shield.svg?component'
+import _ShieldAlertIcon from './icons/shield-alert.svg?component'
+import _ShieldCheckIcon from './icons/shield-check.svg?component'
 import _SignalIcon from './icons/signal.svg?component'
 import _SkullIcon from './icons/skull.svg?component'
 import _SlashIcon from './icons/slash.svg?component'
@@ -250,6 +255,7 @@ export const ChartIcon = _ChartIcon
 export const CheckCheckIcon = _CheckCheckIcon
 export const CheckCircleIcon = _CheckCircleIcon
 export const CheckIcon = _CheckIcon
+export const ChevronDownIcon = _ChevronDownIcon
 export const ChevronLeftIcon = _ChevronLeftIcon
 export const ChevronRightIcon = _ChevronRightIcon
 export const CircleUserIcon = _CircleUserIcon
@@ -283,6 +289,8 @@ export const ExternalIcon = _ExternalIcon
 export const EyeOffIcon = _EyeOffIcon
 export const EyeIcon = _EyeIcon
 export const FileArchiveIcon = _FileArchiveIcon
+export const FileCodeIcon = _FileCodeIcon
+export const FileImageIcon = _FileImageIcon
 export const FileTextIcon = _FileTextIcon
 export const FileIcon = _FileIcon
 export const FilterXIcon = _FilterXIcon
@@ -382,6 +390,8 @@ export const ServerPlusIcon = _ServerPlusIcon
 export const ServerIcon = _ServerIcon
 export const SettingsIcon = _SettingsIcon
 export const ShareIcon = _ShareIcon
+export const ShieldAlertIcon = _ShieldAlertIcon
+export const ShieldCheckIcon = _ShieldCheckIcon
 export const ShieldIcon = _ShieldIcon
 export const SignalIcon = _SignalIcon
 export const SkullIcon = _SkullIcon
